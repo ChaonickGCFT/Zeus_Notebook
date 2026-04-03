@@ -19,13 +19,14 @@ Public notebook: **[`notebooks/gcft_hera_f2_xion_prior.ipynb`](notebooks/gcft_he
 **Colab:** [open in Colab](https://colab.research.google.com/github/ChaonickGCFT/Zeus_Notebook/blob/main/notebooks/gcft_hera_f2_xion_prior.ipynb).
 
 **v0.2 (freeze-$Q^2$ + release assets)**  
-High-$Q^2$ template blow-up is **tamed** by copying the per-$Q^2$ fit from the largest table $Q^2 \le 500\,\mathrm{GeV}^2$ before evolving to higher $Q^2$. On the 2010 merged $F_2$ sample (same diagonal uncertainty treatment as the notebook), the **median** absolute relative residual $| (F_2^{\mathrm{data}}-F_2^{\mathrm{pred}})/F_2^{\mathrm{data}} |$ is about **2%**, and roughly **77%** of points lie inside **$|\Delta F_2| < 7\%$** (regenerate numbers with `python notebooks/_v02_generate_outputs.py` from repo root).
+The top of the $Q^2$ ladder is **stabilised** by copying the per-$Q^2$ $(\log x)$ template from the largest table $Q^2 \le 12\,000\,\mathrm{GeV}^2$ onto any table with **higher** $Q^2$ (for ins836107 that is only the $Q^2 = 20\,000\,\mathrm{GeV}^2$ slice — lower table $Q^2$ keep their own fits). The residual heat-map uses a **$\pm 7\%$** colour scale; most of the $(\log Q^2,\log x)$ plane stays inside that band, with the **highest-$Q^2$ column** showing the largest mean $|\Delta F_2|/F_2$. **$\Sigma\chi^2$** (diagonal combined $\sigma$) is **largest** for the medium-$Q^2$ tables ($\sim 500$–$1500\,\mathrm{GeV}^2$); see `chi2_per_q2.csv`. Global **median** $|\Delta F_2|/F_2$ remains $\mathcal{O}(2\%)$ with $\sim 77\%$ of points below $7\%$ (regenerate via `python notebooks/_v02_generate_outputs.py` from repo root).
 
 Committed outputs under [`notebooks/v0.2_assets/`](notebooks/v0.2_assets/):
 
-- `residual_heatmap_v02.png` — mean relative residual in $(\log_{10} Q^2,\log_{10} x)$ with the freeze in place  
-- `chi2_top_bins.csv` — $\sum\chi^2$ by $Q^2$ bin (top bins) for where fit tension piles up  
-- `sigma_diff_gcft_vs_data.csv` — H1 diffractive-style $x F_2^{D(3)}$ from [HEPData ins447269](https://www.hepdata.net/record/ins447269) plus a **log–log template** column `model_gcft_template` (phenomenological cross-check, not a full GCFT fit)  
+- `residual_heatmap_v02.png` — mean relative residual in $(\log_{10} Q^2,\log_{10} x)$ (baseline, no xion)  
+- `chi2_per_q2.csv` — $\sum\chi^2$, $n$, mean $|\Delta F_2|/F_2$, and fraction below $7\%$ **per table $Q^2$**  
+- `chi2_top_bins.csv` — $\sum\chi^2$ by wide $Q^2$ bin (legacy summary)  
+- `sigma_diff_gcft_vs_data.csv` — H1 diffractive-style $x F_2^{D(3)}$ from [HEPData ins447269](https://www.hepdata.net/record/ins447269) plus a **log–log template** column `model_gcft_template` (phenomenological cross-check, not a full GCFT fit). Raw URL for tools: `https://raw.githubusercontent.com/ChaonickGCFT/Zeus_Notebook/main/notebooks/v0.2_assets/sigma_diff_gcft_vs_data.csv`  
 - `mcmc_eta_trace.npz`, `mcmc_eta_trace.png` — short Metropolis trace for the illustrative xion amplitude $\eta$
 
 **Not included:** dedicated $F_L$ tables, full diffractive theory fit, CC — add other HepData records and a YAML→covariance step for a publication-grade fit.

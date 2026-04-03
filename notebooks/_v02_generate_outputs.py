@@ -23,6 +23,9 @@ ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "v0.2_assets"
 OUT.mkdir(parents=True, exist_ok=True)
 
+# Only table Q² above this reuse the largest table Q² ≤ cut (here: 20k reuses 12k).
+FREEZE_Q2_CUT = 12_000.0
+
 HEPDATA_2010 = "https://www.hepdata.net/download/submission/ins836107/1/csv"
 DIFR = "https://www.hepdata.net/download/submission/ins447269/1/csv"
 
@@ -292,7 +295,7 @@ def load_diffractive(url: str) -> pd.DataFrame:
 def main():
     df = load_ins836107()
     coef_quad = fit_global_quad(df)
-    per_q2 = freeze_per_q2_above(fit_per_q2_surfaces(df), df, 500.0)
+    per_q2 = freeze_per_q2_above(fit_per_q2_surfaces(df), df, FREEZE_Q2_CUT)
     xv = df["x"].values
     Q2v = df["Q2"].values
     f2v = df["F2"].values
@@ -303,8 +306,11 @@ def main():
     sig_f2 = np.maximum(sig_rel * f2v, 1e-15)
     chi2 = ((f2v - pred) / sig_f2) ** 2
 
-    print("Global |rel res| percentiles (freeze-Q²):", np.percentile(np.abs(res_rel), [50, 90, 95, 99]))
+    print("Global |rel res| percentiles (freeze-Q2):", np.percentile(np.abs(res_rel), [50, 90, 95, 99]))
     print("Fraction |rel res| < 7%:", float(np.mean(np.abs(res_rel) < 0.07)))
+    uq = np.sort(df["Q2"].unique())
+    q_ref = float(uq[uq <= FREEZE_Q2_CUT].max())
+    print(f"Freeze: table Q2 > {FREEZE_Q2_CUT:g} reuse coeffs from table Q2 = {q_ref:g} GeV^2")
 
     fig, ax = plt.subplots(figsize=(7.2, 5.0))
     hb = ax.hexbin(
@@ -320,7 +326,9 @@ def main():
     )
     ax.set_xlabel(r"$\log_{10}(Q^2/\mathrm{GeV}^2)$")
     ax.set_ylabel(r"$\log_{10}(x)$")
-    ax.set_title("Mean relative residual $(F_2^{data}-F_2^{pred})/F_2^{data}$ (per-$Q^2$ + freeze $Q^2>500$)")
+    ax.set_title(
+        rf"Mean rel. residual (per-$Q^2$; $Q^2>{FREEZE_Q2_CUT:g}$ reuse ${q_ref:g}$ GeV$^2$ template)"
+    )
     cb = plt.colorbar(hb, ax=ax)
     cb.set_label("mean rel. residual")
     fig.tight_layout()
@@ -329,6 +337,22 @@ def main():
 
     dfv = df.copy()
     dfv["chi2"] = chi2
+    dfv["abs_rel_res"] = np.abs(res_rel)
+    per_q2_tbl = (
+        dfv.groupby("Q2", sort=True)
+        .agg(
+            n=("chi2", "size"),
+            sum_chi2=("chi2", "sum"),
+            mean_abs_rel_res=("abs_rel_res", "mean"),
+            frac_lt_7pct=("abs_rel_res", lambda s: float(np.mean(s < 0.07))),
+        )
+        .reset_index()
+        .sort_values("sum_chi2", ascending=False)
+    )
+    per_q2_tbl.to_csv(OUT / "chi2_per_q2.csv", index=False)
+    print("Top 10 table Q2 by sum(chi2):")
+    print(per_q2_tbl.head(10).to_string(index=False))
+
     try:
         bins = np.geomspace(dfv["Q2"].min(), dfv["Q2"].max(), 18)
         dfv["Q2_bin"] = pd.cut(dfv["Q2"], bins=bins)
