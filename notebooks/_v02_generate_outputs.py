@@ -1,5 +1,5 @@
 """
-One-off: regenerate v0.2 assets (heatmap, chi2 table, diffractive CSV, MCMC trace).
+Regenerate release assets (v0.2 heatmap / χ² / diffractive / MCMC; v0.3 slice + systematics CSV).
 Run from repo root:  python notebooks/_v02_generate_outputs.py
 """
 from __future__ import annotations
@@ -22,6 +22,11 @@ import matplotlib.pyplot as plt
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "v0.2_assets"
 OUT.mkdir(parents=True, exist_ok=True)
+OUT_V03 = ROOT / "v0.3_assets"
+OUT_V03.mkdir(parents=True, exist_ok=True)
+
+# Representative fixed-Q² slice for F2 residual plot (nearest table Q² is used).
+SLICE_Q2_TARGET_GEV2 = 4.0
 
 # Only table Q² above this reuse the largest table Q² ≤ cut (here: 20k reuses 12k).
 FREEZE_Q2_CUT = 12_000.0
@@ -85,6 +90,10 @@ def load_ins836107() -> pd.DataFrame:
                         except ValueError:
                             break
                         i += 2
+
+                    def _rp(j: int) -> float:
+                        return float(rel_parts[j]) if j < len(rel_parts) else float("nan")
+
                     stat_rel = rel_parts[0] if rel_parts else 0.0
                     comb_rel = float(np.sqrt(np.sum(np.square(rel_parts)))) if rel_parts else stat_rel
                     sig_rows.append(
@@ -96,6 +105,14 @@ def load_ins836107() -> pd.DataFrame:
                             "sigma_r": sig,
                             "sigma_r_stat_rel": stat_rel,
                             "sigma_r_comb_rel": comb_rel,
+                            # Aaron et al. / HEPData ins836107: sys_1 uncorr. exp.; sys_2 corr. exp.;
+                            # sys_3–5 corr. combination; last pair overall norm (see record text).
+                            "sigma_r_sys_uncorr_exp_rel": _rp(1),
+                            "sigma_r_sys_corr_exp_rel": _rp(2),
+                            "sigma_r_sys_comb_1_rel": _rp(3),
+                            "sigma_r_sys_comb_2_rel": _rp(4),
+                            "sigma_r_sys_comb_3_rel": _rp(5),
+                            "sigma_r_sys_overall_norm_rel": _rp(6),
                         }
                     )
                 elif mode == "f2" and q2 is not None:
@@ -134,7 +151,18 @@ def load_ins836107() -> pd.DataFrame:
     keys = ["Q2", "x", "y", "Ecm"]
     sig_df = sig_df.drop_duplicates(subset=keys, keep="first")
     f2_df = f2_df.drop_duplicates(subset=keys, keep="first")
-    merge_cols = keys + ["sigma_r", "sigma_r_stat_rel", "sigma_r_comb_rel"]
+    sys_cols = [
+        "sigma_r",
+        "sigma_r_stat_rel",
+        "sigma_r_comb_rel",
+        "sigma_r_sys_uncorr_exp_rel",
+        "sigma_r_sys_corr_exp_rel",
+        "sigma_r_sys_comb_1_rel",
+        "sigma_r_sys_comb_2_rel",
+        "sigma_r_sys_comb_3_rel",
+        "sigma_r_sys_overall_norm_rel",
+    ]
+    merge_cols = keys + sys_cols
     merged = f2_df.merge(sig_df[merge_cols], on=keys, how="left")
     floor = merged["F2_norm_rel"].clip(lower=0.005)
     merged["F2_rel_err_stat"] = merged["sigma_r_stat_rel"].fillna(floor)
@@ -292,6 +320,112 @@ def load_diffractive(url: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def write_hera_systematics_quadrature_csv(df: pd.DataFrame, path: Path) -> None:
+    """Per-point σ breakdown from reduced cross section rows (for mixing with experiment-specific tables)."""
+    meta = [
+        "# H1+ZEUS combined NC ins836107 — Aaron et al., JHEP 01 (2010) 109.",
+        "# Fractions are symmetric averages of +/- %% columns on each sigma_r CSV row.",
+        "# HEPData ins836107 record text: first sys = uncorrelated experimental; second = correlated experimental;",
+        "# sys_3..sys_5 = three correlated combination sources; plus 0.5%% overall normalisation row.",
+        "# z_Q2_over_s_x = Q^2/(E_cm^2 * x); equals quoted y for standard DIS kinematics at fixed E_cm.",
+        "# sigma_rel_total_quadrature matches sqrt(sum of squared listed components) when none are missing.",
+    ]
+    d = df.copy()
+    d["z_Q2_over_s_x"] = d["Q2"] / (d["Ecm"].astype(float) ** 2 * d["x"])
+    cols_out = {
+        "Q2": "Q2_GeV2",
+        "x": "x",
+        "y": "y_Bjorken",
+        "Ecm": "Ecm_GeV",
+        "F2": "F2",
+        "z_Q2_over_s_x": "z_Q2_over_s_x",
+        "sigma_r_stat_rel": "sigma_rel_stat",
+        "sigma_r_sys_uncorr_exp_rel": "sigma_rel_sys_uncorrelated_experimental",
+        "sigma_r_sys_corr_exp_rel": "sigma_rel_sys_correlated_experimental",
+        "sigma_r_sys_comb_1_rel": "sigma_rel_sys_combination_1",
+        "sigma_r_sys_comb_2_rel": "sigma_rel_sys_combination_2",
+        "sigma_r_sys_comb_3_rel": "sigma_rel_sys_combination_3",
+        "sigma_r_sys_overall_norm_rel": "sigma_rel_sys_overall_normalisation",
+        "sigma_r_comb_rel": "sigma_rel_total_quadrature_listed_sigma_r",
+    }
+    sub = d[list(cols_out.keys())].rename(columns=cols_out)
+    sq = (
+        sub["sigma_rel_stat"] ** 2
+        + sub["sigma_rel_sys_uncorrelated_experimental"].fillna(0.0) ** 2
+        + sub["sigma_rel_sys_correlated_experimental"].fillna(0.0) ** 2
+        + sub["sigma_rel_sys_combination_1"].fillna(0.0) ** 2
+        + sub["sigma_rel_sys_combination_2"].fillna(0.0) ** 2
+        + sub["sigma_rel_sys_combination_3"].fillna(0.0) ** 2
+        + sub["sigma_rel_sys_overall_normalisation"].fillna(0.0) ** 2
+    ) ** 0.5
+    sub["sigma_rel_total_quadrature_rebuilt"] = sq
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for ln in meta:
+            f.write(ln + "\n")
+    sub.to_csv(path, mode="a", index=False)
+
+
+def plot_f2_residual_slice_q2(
+    df: pd.DataFrame,
+    per_q2: dict,
+    coef_quad,
+    q2_target: float,
+    out_png: Path,
+) -> float:
+    """Residuals vs log10(x) at the table Q² closest to q2_target; saves one PNG."""
+    uq = np.sort(df["Q2"].unique())
+    d = np.abs(uq - q2_target)
+    q_pick = float(uq[d <= d.min() + 1e-9][-1])  # tie → higher Q² (e.g. 4.5 vs 3.5 for target 4)
+    sub = df[np.isclose(df["Q2"], q_pick)].copy()
+    sub = sub.sort_values("x")
+    if sub.empty:
+        raise RuntimeError(f"No rows for Q² slice near {q2_target}")
+    xv = sub["x"].values
+    qv = sub["Q2"].values
+    f2v = sub["F2"].values
+    ecmv = sub["Ecm"].values
+    logp = log_f2_per_q2(xv, qv, per_q2, coef_quad)
+    pred = np.exp(np.clip(logp, -80.0, 80.0))
+    res = (f2v - pred) / f2v
+    yerr = sub["F2_rel_err"].values
+    z_kin = qv / (ecmv**2 * xv)
+    y_tab = sub["y"].values
+    max_yz = float(np.max(np.abs(z_kin - y_tab)))
+
+    fig, ax = plt.subplots(figsize=(6.8, 4.2))
+    ax.errorbar(
+        np.log10(xv),
+        res,
+        yerr=yerr,
+        fmt="o",
+        ms=4,
+        capsize=2,
+        color="0.2",
+        ecolor="0.45",
+        alpha=0.9,
+    )
+    ax.axhline(0.0, color="k", ls="--", lw=0.85)
+    ax.set_xlabel(r"$\log_{10}(x)$")
+    ax.set_ylabel(r"relative residual $(F_2^{\rm data}-F_2^{\rm pred})/F_2^{\rm data}$")
+    ax.set_title(
+        rf"$F_2$ residuals at $Q^2 = {q_pick:g}$ GeV$^2$ (nearest table to ${q2_target:g}$ GeV$^2$)"
+    )
+    ax.text(
+        0.02,
+        0.02,
+        rf"check: max $|y-z|={max_yz:.2e}$ with $z=Q^2/(s\,x)$, $s=E_{{\rm cm}}^2$, table $y$",
+        transform=ax.transAxes,
+        fontsize=7,
+        va="bottom",
+        color="0.35",
+    )
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=160)
+    plt.close()
+    return q_pick
+
+
 def main():
     df = load_ins836107()
     coef_quad = fit_global_quad(df)
@@ -434,6 +568,13 @@ def main():
     fig.tight_layout()
     fig.savefig(OUT / "mcmc_eta_trace.png", dpi=140)
     plt.close()
+
+    # --- v0.3: systematics CSV + fixed-Q² residual slice ---
+    write_hera_systematics_quadrature_csv(df, OUT_V03 / "hera_systematics_quadrature.csv")
+    q_used = plot_f2_residual_slice_q2(
+        df, per_q2, coef_quad, SLICE_Q2_TARGET_GEV2, OUT_V03 / "f2_residual_slice_z.png"
+    )
+    print(f"v0.3: wrote systematics CSV + slice plot (Q2_table={q_used:g} GeV^2) -> {OUT_V03}")
 
     print("Wrote:", list(OUT.iterdir()))
     return 0
